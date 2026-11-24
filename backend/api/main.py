@@ -27,8 +27,10 @@ from pydantic import BaseModel, Field
 from .crypto_bridge import decrypt_json, encrypt_json
 
 ROOT = Path(__file__).resolve().parents[1]
-DATABASE = Path(os.environ.get("PORTAL_DATABASE", ROOT / "portal_demo.sqlite3"))
-UPLOADS = ROOT / "private_uploads"
+ON_VERCEL = any(os.environ.get(name) for name in ("VERCEL", "VERCEL_ENV", "VERCEL_URL"))
+RUNTIME_DIR = Path("/tmp/docsecure") if ON_VERCEL else ROOT
+DATABASE = Path(os.environ.get("PORTAL_DATABASE", RUNTIME_DIR / "portal_demo.sqlite3"))
+UPLOADS = Path(os.environ.get("PORTAL_UPLOADS", RUNTIME_DIR / "private_uploads"))
 APP_ENV = os.environ.get("APP_ENV", "development").lower()
 SESSION_SECRET = os.environ.get("PORTAL_SESSION_SECRET", "")
 if APP_ENV == "production" and len(SESSION_SECRET) < 32:
