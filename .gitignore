@@ -1,0 +1,8 @@
+.uv-cache/
+.tmp/
+portal_demo.sqlite3
+portal_demo.sqlite3-shm
+portal_demo.sqlite3-wal
+__pycache__/
+*.py[cod]
+private_uploads/
