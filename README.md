@@ -69,6 +69,8 @@ The document fees currently displayed are sample values for the demo, not offici
 
 ## Cryptography and deployment notes
 
+For a combined Vercel deployment, set the Vercel project's Framework Preset to **Services**. The root `vercel.json` routes `/api/*` to the FastAPI backend service and all other paths to the static frontend service. The frontend uses same-origin `/api/...` requests on Vercel and keeps `http://localhost:8001` as its local development default. The current SQLite demo database and uploaded receipt files are local to a function instance; use managed persistent storage before relying on them in production.
+
 The Web Crypto, Python, and Java helpers use AES-256-GCM, a fresh 12-byte IV, a 128-bit tag, and authenticated additional data. The API keeps the key server-side and issues the QR envelope; the browser never receives a shared production key. The default local key and generated session secret are development-only. Production startup requires `APP_ENV=production`, `PORTAL_AES256_KEY_B64`, and a `PORTAL_SESSION_SECRET` of at least 32 characters.
 
 This is a local demo: SQLite, sample users, file-based receipt storage, and cashier approval are not a substitute for UA identity, payment, and records systems. Use HTTPS, secret management, rate limiting, secure server-side sessions, access-controlled object storage, database backups, and a payment provider integration before production. GitHub stores this source code; GitHub Pages cannot run the Python API. A hosted deployment needs a separate backend host and a configured frontend API URL/CORS allowlist.

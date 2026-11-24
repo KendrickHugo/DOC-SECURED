@@ -2,7 +2,8 @@
 (() => {
   const role = document.body.dataset.role || "student";
   const app = document.getElementById("app");
-  const API = window.PORTAL_API_BASE || "http://localhost:8001";
+  const localHost = ["localhost", "127.0.0.1"].includes(location.hostname);
+  const API = window.PORTAL_API_BASE || (localHost ? "http://localhost:8001" : "");
   const roleName = { student: "Student", cashier: "Cashier", registrar: "Registrar" };
   const stageNames = ["Sign in", "Checklist", "Payment", "Review", "Approval", "QR scan", "Claim"];
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
