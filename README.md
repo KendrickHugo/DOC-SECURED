@@ -14,7 +14,7 @@ frontend/
   js/app.js                  Role routing and workflow UI
   js/crypto.js               Browser AES-256-GCM envelope helper
   styles.css                 Shared responsive design system
-  server.js                  Local static frontend server
+scripts/serve-frontend.cjs  Local static frontend server
 backend/
   api/main.py                FastAPI auth, request, review and fulfillment routes
   api/crypto_bridge.py       Python AES-256-GCM envelope helper
@@ -30,8 +30,7 @@ Open two PowerShell terminals from the repository folder.
 Terminal 1:
 
 ```powershell
-Set-Location .\frontend
-node .\server.js
+node .\scripts\serve-frontend.cjs
 ```
 
 Terminal 2:
