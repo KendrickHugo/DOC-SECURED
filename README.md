@@ -60,11 +60,12 @@ These are public demo credentials, not real UA accounts. Passwords are stored as
 2. **Checklist:** students choose Copy of Grades, Transcript of Records, and/or Certificate of Enrollment. Clearance flags trigger a digital undertaking before submission.
 3. **Payment:** students upload a PNG/JPEG/WebP payment screenshot and enter the Official Receipt (OR) reference. Requests wait in the cashier review queue.
 4. **Verification and decision:** cashiers verify proof and OR details; registrars inspect the request and approve or reject it with a reason.
-5. **Encrypted QR:** only approved requests can receive a short-lived AES-256-GCM encrypted QR containing request/document IDs, OR reference, undertaking state, timestamp, and a random nonce.
+5. **Encrypted QR:** only approved requests can receive a short-lived AES-256-GCM encrypted QR containing request/document IDs, paper quantities, OR reference, undertaking state, timestamp, and a random nonce. Students also receive a matching one-time backup code for registrar entry if camera scanning fails; both expire after five minutes and only one can verify the handover.
 6. **Counter validation:** the registrar scanner checks the GCM authentication tag, expiry, current request binding, and single-use nonce.
 7. **Fulfillment:** after a successful scan, the registrar confirms physical handover and marks the request claimed. Workflow events are written to an append-only SQLite audit table.
 
 The document fees currently displayed are sample values for the demo, not official UA rates.
+Students can select paper quantities for each document, up to 10 papers total per request. The displayed sample fee is charged per paper and the total updates as quantities change.
 
 ## Cryptography and deployment notes
 

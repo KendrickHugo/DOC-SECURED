@@ -60,6 +60,7 @@ DOCUMENTS = {
     "TOR": {"id": "TOR", "name": "Transcript of Records", "fee": 500.0, "prerequisite": "Library and financial clearance"},
     "COE": {"id": "COE", "name": "Certificate of Enrollment", "fee": 100.0, "prerequisite": "Current enrollment"},
 }
+MAX_PAPERS_PER_REQUEST = 10
 SAMPLE_STUDENT = {
     "student_id": "2024-01842",
     "name": "Maya Santos",
@@ -132,7 +133,7 @@ def init_database() -> None:
             );
             CREATE TABLE IF NOT EXISTS document_requests (
               id TEXT PRIMARY KEY, student_id TEXT NOT NULL REFERENCES students(student_id),
-              document_ids_json TEXT NOT NULL, amount_cents INTEGER NOT NULL,
+              document_ids_json TEXT NOT NULL, document_quantities_json TEXT NOT NULL DEFAULT '{}', amount_cents INTEGER NOT NULL,
               or_number TEXT NOT NULL UNIQUE, undertaking_signed INTEGER NOT NULL,
               undertaking_version TEXT NOT NULL, proof_filename TEXT NOT NULL,
               proof_mime TEXT NOT NULL, proof_path TEXT NOT NULL,
@@ -140,6 +141,7 @@ def init_database() -> None:
               payment_verified_by TEXT, payment_verified_at TEXT,
               reviewed_by TEXT, reviewed_at TEXT,
               qr_nonce_hash TEXT, qr_expires_at INTEGER, qr_used_at TEXT,
+              backup_code_hash TEXT, backup_code_expires_at INTEGER, backup_code_used_at TEXT,
               counter_verified_by TEXT, counter_verified_at TEXT,
               claimed_by TEXT, claimed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
@@ -153,12 +155,25 @@ def init_database() -> None:
               BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'Audit log is append-only'); END;
             CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
               BEFORE DELETE ON audit_log BEGIN SELECT RAISE(ABORT, 'Audit log is append-only'); END;
+            CREATE TABLE IF NOT EXISTS counter_code_attempts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT NOT NULL,
+              attempted_at INTEGER NOT NULL
+            );
             """
         )
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)")}
         if "holds_json" not in columns:
             connection.execute("ALTER TABLE students ADD COLUMN holds_json TEXT NOT NULL DEFAULT '[]'")
             connection.execute("UPDATE students SET holds_json = ? WHERE student_id = ?", (json.dumps(["Library clearance pending"]), SAMPLE_STUDENT["student_id"]))
+        request_columns = {row["name"] for row in connection.execute("PRAGMA table_info(document_requests)")}
+        for name, declaration in (
+            ("document_quantities_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("backup_code_hash", "TEXT"),
+            ("backup_code_expires_at", "INTEGER"),
+            ("backup_code_used_at", "TEXT"),
+        ):
+            if name not in request_columns:
+                connection.execute(f"ALTER TABLE document_requests ADD COLUMN {name} {declaration}")
         for user in DEMO_USERS:
             if connection.execute("SELECT 1 FROM users WHERE identifier = ?", (user["identifier"],)).fetchone():
                 continue
@@ -228,6 +243,7 @@ class ProofFields(BaseModel):
 
 class CreateRequest(ProofFields):
     documentIds: list[str] = Field(min_length=1, max_length=10)
+    documentQuantities: dict[str, int] = Field(default_factory=dict)
     orNumber: str = Field(min_length=3, max_length=80)
     undertakingSigned: bool
     undertakingVersion: str | None = None
@@ -255,6 +271,10 @@ class RequestId(BaseModel):
 
 class EnvelopeRequest(BaseModel):
     envelope: dict[str, Any]
+
+
+class BackupCodeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
 
 
 def get_student(student_id: str) -> dict[str, Any]:
@@ -289,15 +309,36 @@ def decode_proof(filename: str, mime: str, encoded: str) -> tuple[str, Path]:
     return clean_name, target
 
 
-def document_names(ids: list[str]) -> list[str]:
-    return [DOCUMENTS[item]["name"] for item in ids if item in DOCUMENTS]
+def document_names(ids: list[str], quantities: dict[str, int]) -> list[str]:
+    return [
+        f"{DOCUMENTS[item]['name']} × {quantities.get(item, 1)}"
+        for item in ids if item in DOCUMENTS
+    ]
+
+
+def validated_quantities(document_ids: list[str], requested: dict[str, int]) -> dict[str, int]:
+    selected = set(document_ids)
+    if set(requested) - selected:
+        raise HTTPException(status_code=422, detail="Paper counts may only be set for selected documents.")
+    quantities = {document_id: requested.get(document_id, 1) for document_id in document_ids}
+    if any(type(count) is not int or not 1 <= count <= MAX_PAPERS_PER_REQUEST for count in quantities.values()):
+        raise HTTPException(status_code=422, detail=f"Choose between 1 and {MAX_PAPERS_PER_REQUEST} papers for each selected document.")
+    if sum(quantities.values()) > MAX_PAPERS_PER_REQUEST:
+        raise HTTPException(status_code=422, detail=f"A request can include at most {MAX_PAPERS_PER_REQUEST} papers total.")
+    return quantities
 
 
 def row_with_details(row: sqlite3.Row, include_proof: bool = False) -> dict[str, Any]:
     item = dict(row)
     ids = json.loads(item.pop("document_ids_json"))
+    try:
+        saved_quantities = json.loads(item.pop("document_quantities_json", "{}") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        saved_quantities = {}
+    quantities = {document_id: int(saved_quantities.get(document_id, 1)) for document_id in ids}
     item["documentIds"] = ids
-    item["documents"] = document_names(ids)
+    item["documentQuantities"] = quantities
+    item["documents"] = document_names(ids, quantities)
     item["amount"] = item.pop("amount_cents") / 100
     item["orNumber"] = item.pop("or_number")
     item["undertakingSigned"] = bool(item.pop("undertaking_signed"))
@@ -315,7 +356,7 @@ def row_with_details(row: sqlite3.Row, include_proof: bool = False) -> dict[str,
             item["proofDataUrl"] = f"data:{item['proofMime']};base64,{base64.b64encode(file_path.read_bytes()).decode('ascii')}"
     else:
         item.pop("proof_path", None)
-    for field in ("payment_verified_by", "payment_verified_at", "reviewed_by", "reviewed_at", "counter_verified_by", "counter_verified_at", "claimed_by", "claimed_at", "qr_nonce_hash", "qr_expires_at", "qr_used_at", "undertaking_version"):
+    for field in ("payment_verified_by", "payment_verified_at", "reviewed_by", "reviewed_at", "counter_verified_by", "counter_verified_at", "claimed_by", "claimed_at", "qr_nonce_hash", "qr_expires_at", "qr_used_at", "backup_code_hash", "backup_code_expires_at", "backup_code_used_at", "undertaking_version"):
         item.pop(field, None)
     return item
 
@@ -340,11 +381,11 @@ def get_request(request_id: str) -> dict[str, Any]:
     return row_with_details(row)
 
 
-def add_request(student_id: str, document_ids: list[str], or_number: str, undertaking: bool,
+def add_request(student_id: str, document_ids: list[str], document_quantities: dict[str, int], or_number: str, undertaking: bool,
                 undertaking_version: str | None, proof_filename: str, proof_mime: str,
                 proof_path: Path, actor: dict[str, str], request_id: str | None = None) -> str:
     request_id = request_id or str(uuid.uuid4())
-    total_cents = sum(round(DOCUMENTS[item]["fee"] * 100) for item in document_ids)
+    total_cents = sum(round(DOCUMENTS[item]["fee"] * 100) * document_quantities[item] for item in document_ids)
     timestamp = now_iso()
     try:
         with database() as connection:
@@ -352,16 +393,16 @@ def add_request(student_id: str, document_ids: list[str], or_number: str, undert
                 existing = connection.execute("SELECT status FROM document_requests WHERE id = ? AND student_id = ?", (request_id, student_id)).fetchone()
                 if existing:
                     connection.execute(
-                        "UPDATE document_requests SET or_number=?, proof_filename=?, proof_mime=?, proof_path=?, undertaking_signed=?, undertaking_version=?, status='PENDING_PAYMENT_REVIEW', rejection_stage=NULL, rejection_reason=NULL, payment_verified_by=NULL, payment_verified_at=NULL, reviewed_by=NULL, reviewed_at=NULL, qr_nonce_hash=NULL, qr_expires_at=NULL, qr_used_at=NULL, counter_verified_by=NULL, counter_verified_at=NULL, claimed_by=NULL, claimed_at=NULL, updated_at=? WHERE id=?",
-                        (or_number, proof_filename, proof_mime, str(proof_path), int(undertaking), undertaking_version or "", timestamp, request_id),
+                        "UPDATE document_requests SET document_quantities_json=?, amount_cents=?, or_number=?, proof_filename=?, proof_mime=?, proof_path=?, undertaking_signed=?, undertaking_version=?, status='PENDING_PAYMENT_REVIEW', rejection_stage=NULL, rejection_reason=NULL, payment_verified_by=NULL, payment_verified_at=NULL, reviewed_by=NULL, reviewed_at=NULL, qr_nonce_hash=NULL, qr_expires_at=NULL, qr_used_at=NULL, backup_code_hash=NULL, backup_code_expires_at=NULL, backup_code_used_at=NULL, counter_verified_by=NULL, counter_verified_at=NULL, claimed_by=NULL, claimed_at=NULL, updated_at=? WHERE id=?",
+                        (json.dumps(document_quantities, sort_keys=True), total_cents, or_number, proof_filename, proof_mime, str(proof_path), int(undertaking), undertaking_version or "", timestamp, request_id),
                     )
                     audit(connection, actor["identifier"], actor["role"], "REQUEST_RESUBMITTED", "document_request", request_id, {"orNumber": or_number})
                     return request_id
             connection.execute(
-                "INSERT INTO document_requests (id, student_id, document_ids_json, amount_cents, or_number, undertaking_signed, undertaking_version, proof_filename, proof_mime, proof_path, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT_REVIEW', ?, ?)",
-                (request_id, student_id, json.dumps(document_ids), total_cents, or_number, int(undertaking), undertaking_version or "", proof_filename, proof_mime, str(proof_path), timestamp, timestamp),
+                "INSERT INTO document_requests (id, student_id, document_ids_json, document_quantities_json, amount_cents, or_number, undertaking_signed, undertaking_version, proof_filename, proof_mime, proof_path, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT_REVIEW', ?, ?)",
+                (request_id, student_id, json.dumps(document_ids), json.dumps(document_quantities, sort_keys=True), total_cents, or_number, int(undertaking), undertaking_version or "", proof_filename, proof_mime, str(proof_path), timestamp, timestamp),
             )
-            audit(connection, actor["identifier"], actor["role"], "REQUEST_SUBMITTED", "document_request", request_id, {"documentIds": document_ids, "orNumber": or_number, "amount": total_cents / 100, "undertakingSigned": undertaking})
+            audit(connection, actor["identifier"], actor["role"], "REQUEST_SUBMITTED", "document_request", request_id, {"documentIds": document_ids, "documentQuantities": document_quantities, "orNumber": or_number, "amount": total_cents / 100, "undertakingSigned": undertaking})
     except sqlite3.IntegrityError as exc:
         proof_path.unlink(missing_ok=True)
         raise HTTPException(status_code=409, detail="That Official Receipt number is already attached to a request.") from exc
@@ -429,13 +470,14 @@ def create_request(body: CreateRequest, user: dict[str, str] = Depends(require_r
     unknown = [item for item in document_ids if item not in DOCUMENTS]
     if unknown:
         raise HTTPException(status_code=422, detail="One or more selected documents are not available.")
+    document_quantities = validated_quantities(document_ids, body.documentQuantities)
     student = get_student(user["identifier"])
     if student["holds"] and (not body.undertakingSigned or body.undertakingVersion != UNDERTAKING_VERSION):
         raise HTTPException(status_code=422, detail="Review and accept the digital undertaking before submitting.")
     if not body.orNumber.strip():
         raise HTTPException(status_code=422, detail="Enter the payment Official Receipt number.")
     filename, proof_path = decode_proof(body.proofFilename, body.proofMime, body.proofBase64)
-    request_id = add_request(user["identifier"], document_ids, body.orNumber.strip(), body.undertakingSigned,
+    request_id = add_request(user["identifier"], document_ids, document_quantities, body.orNumber.strip(), body.undertakingSigned,
                              body.undertakingVersion, filename, body.proofMime, proof_path, user)
     return {"request": get_request(request_id), "message": "Request submitted for cashier payment review."}
 
@@ -452,8 +494,10 @@ def resubmit_request(request_id: str, body: ResubmitRequest, user: dict[str, str
     filename, proof_path = decode_proof(body.proofFilename, body.proofMime, body.proofBase64)
     previous = Path(row["proof_path"])
     ids = json.loads(row["document_ids_json"])
+    quantities = json.loads(row["document_quantities_json"] or "{}")
+    quantities = {document_id: int(quantities.get(document_id, 1)) for document_id in ids}
     try:
-        add_request(user["identifier"], ids, body.orNumber.strip(), body.undertakingSigned,
+        add_request(user["identifier"], ids, quantities, body.orNumber.strip(), body.undertakingSigned,
                     body.undertakingVersion, filename, body.proofMime, proof_path, user, request_id)
     except Exception:
         raise
@@ -474,16 +518,22 @@ def issue_request_qr(request_id: str, user: dict[str, str] = Depends(require_rol
         issued_at = int(time.time())
         expiry = issued_at + 300
         nonce = secrets.token_urlsafe(24)
+        backup_code = secrets.token_hex(8).upper()
+        backup_code_hash = hashlib.sha256(backup_code.encode("ascii")).hexdigest()
+        saved_quantities = json.loads(row["document_quantities_json"] or "{}")
+        quantities = {document_id: int(saved_quantities.get(document_id, 1)) for document_id in json.loads(row["document_ids_json"])}
         payload = {
             "requestId": row["id"], "studentId": row["student_id"],
             "documentIds": json.loads(row["document_ids_json"]), "orNumber": row["or_number"],
+            "documentQuantities": quantities,
             "undertakingSigned": bool(row["undertaking_signed"]),
             "timestamp": issued_at, "expiresAt": expiry, "nonce": nonce,
         }
         envelope = encrypt_json(payload, AES_KEY, AAD)
-        connection.execute("UPDATE document_requests SET qr_nonce_hash=?, qr_expires_at=?, updated_at=? WHERE id=?", (hashlib.sha256(nonce.encode()).hexdigest(), expiry, now_iso(), row["id"]))
+        connection.execute("UPDATE document_requests SET qr_nonce_hash=?, qr_expires_at=?, qr_used_at=NULL, backup_code_hash=?, backup_code_expires_at=?, backup_code_used_at=NULL, updated_at=? WHERE id=?", (hashlib.sha256(nonce.encode()).hexdigest(), expiry, backup_code_hash, expiry, now_iso(), row["id"]))
         audit(connection, user["identifier"], user["role"], "QR_ISSUED", "document_request", row["id"], {"expiresAt": expiry})
-    return {"payload": envelope, "expiresIn": 300, "filename": "DOC-SECURE_Request_QR.png"}
+    display_code = "-".join(backup_code[index:index + 4] for index in range(0, len(backup_code), 4))
+    return {"payload": envelope, "backupCode": display_code, "expiresIn": 300, "filename": "DOC-SECURE_Request_QR.png"}
 
 
 @app.get("/api/cashier/payment-queue")
@@ -560,8 +610,11 @@ def verify_request_qr(body: EnvelopeRequest, user: dict[str, str] = Depends(requ
             raise HTTPException(status_code=409, detail="This single-use QR was already scanned.")
         if row["qr_nonce_hash"] != nonce_hash or row["qr_expires_at"] != payload.get("expiresAt") or row["qr_expires_at"] < timestamp:
             raise HTTPException(status_code=409, detail="This QR was superseded or is no longer valid.")
+        saved_quantities = json.loads(row["document_quantities_json"] or "{}")
+        quantities = {document_id: int(saved_quantities.get(document_id, 1)) for document_id in json.loads(row["document_ids_json"])}
         if (row["student_id"] != payload.get("studentId") or row["or_number"] != payload.get("orNumber")
                 or json.loads(row["document_ids_json"]) != payload.get("documentIds")
+                or quantities != payload.get("documentQuantities", {document_id: 1 for document_id in json.loads(row["document_ids_json"])})
                 or bool(row["undertaking_signed"]) != bool(payload.get("undertakingSigned"))):
             raise HTTPException(status_code=400, detail="The QR details do not match the approved request.")
         timestamp_text = now_iso()
@@ -570,6 +623,51 @@ def verify_request_qr(body: EnvelopeRequest, user: dict[str, str] = Depends(requ
         audit(connection, user["identifier"], user["role"], "QR_VERIFIED_AT_COUNTER", "document_request", request_id, {"orNumber": row["or_number"], "nonceHash": nonce_hash})
     request = get_request(request_id)
     return {"verified": True, "request": request, "message": "QR verified. Confirm physical document handover to mark this request claimed."}
+
+
+@app.post("/api/registrar/verify-backup-code")
+def verify_backup_code(body: BackupCodeRequest, user: dict[str, str] = Depends(require_role("registrar"))) -> dict[str, Any]:
+    normalized = body.code.replace("-", "").replace(" ", "").strip().upper()
+    timestamp = int(time.time())
+    error_status: int | None = None
+    error_message = "The backup code is invalid, expired, or already used."
+    verified_request_id: str | None = None
+    with database() as connection:
+        connection.execute("DELETE FROM counter_code_attempts WHERE attempted_at < ?", (timestamp - 600,))
+        attempts = connection.execute(
+            "SELECT COUNT(*) AS count FROM counter_code_attempts WHERE actor_id=? AND attempted_at>=?",
+            (user["identifier"], timestamp - 600),
+        ).fetchone()["count"]
+        if attempts >= 5:
+            error_status = 429
+            error_message = "Too many backup-code attempts. Try again in 10 minutes."
+        else:
+            if len(normalized) != 16:
+                connection.execute("INSERT INTO counter_code_attempts (actor_id, attempted_at) VALUES (?, ?)", (user["identifier"], timestamp))
+                error_status = 400
+            else:
+                code_hash = hashlib.sha256(normalized.encode("ascii", errors="ignore")).hexdigest()
+                row = connection.execute("SELECT * FROM document_requests WHERE backup_code_hash=?", (code_hash,)).fetchone()
+                if (not row or row["status"] != "APPROVED" or row["qr_used_at"] or row["backup_code_used_at"]
+                        or not row["backup_code_expires_at"] or row["backup_code_expires_at"] < timestamp):
+                    connection.execute("INSERT INTO counter_code_attempts (actor_id, attempted_at) VALUES (?, ?)", (user["identifier"], timestamp))
+                    error_status = 400
+                else:
+                    timestamp_text = now_iso()
+                    updated = connection.execute(
+                        "UPDATE document_requests SET backup_code_used_at=?, qr_used_at=?, counter_verified_by=?, counter_verified_at=?, updated_at=? WHERE id=? AND qr_used_at IS NULL AND backup_code_used_at IS NULL",
+                        (timestamp_text, timestamp_text, user["identifier"], timestamp_text, timestamp_text, row["id"]),
+                    )
+                    if updated.rowcount != 1:
+                        error_status = 409
+                        error_message = "This QR or backup code has already been used."
+                    else:
+                        verified_request_id = row["id"]
+                        audit(connection, user["identifier"], user["role"], "BACKUP_CODE_VERIFIED_AT_COUNTER", "document_request", row["id"], {"codeExpiresAt": row["backup_code_expires_at"]})
+    if error_status:
+        raise HTTPException(status_code=error_status, detail=error_message)
+    request = get_request(verified_request_id)
+    return {"verified": True, "request": request, "message": "Backup code verified. Confirm physical document handover to mark this request claimed."}
 
 
 @app.post("/api/registrar/requests/{request_id}/claim")

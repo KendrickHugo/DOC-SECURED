@@ -100,8 +100,13 @@
     ]);
     const requestRows = requests.map(requestCard).join("") || `<div class="empty-state"><span>▤</span><strong>No requests yet</strong><p>Your document requests and their review progress will appear here.</p></div>`;
     shell({ ...user, name: profile.name, program: profile.program, greeting: `Good morning, ${profile.name.split(" ")[0]}.` },
-      `<div class="stats-grid">${stat("ENROLLMENT", profile.enrollment_status, profile.program, "✓")}${stat("REQUESTS IN PROGRESS", requests.filter((r) => !["CLAIMED", "REJECTED"].includes(r.status)).length, "Follow review status below", "◷")}${stat("ACTIVE CLEARANCE FLAGS", options.holds.length, options.holds.length ? "Undertaking required for requests" : "No outstanding prerequisites", "!")}</div><div class="content-grid request-content"><div><section class="panel" id="request-form-panel"><div class="panel-heading"><div><h2>Start a document request</h2><p class="panel-subtitle">Choose documents, attach payment proof and submit your OR number.</p></div><span class="badge">STAGE 2–3</span></div>${options.holds.length ? `<div class="notice alert-notice"><strong>Clearance check</strong><span>${options.holds.map(esc).join(" · ")}</span><details><summary>Review digital undertaking</summary><p>${esc(options.undertakingText)}</p></details><label class="undertaking-check"><input id="undertaking-signed" type="checkbox"><span>I have read and agree to the digital undertaking.</span></label></div>` : `<div class="notice">Your prerequisite check is clear. Select the documents you need.</div>`}<form id="request-form"><fieldset class="document-options"><legend>Available documents</legend>${options.documents.map(doc => `<label class="document-option"><input type="checkbox" name="documentIds" value="${esc(doc.id)}" data-fee="${doc.fee}"><span><strong>${esc(doc.name)}</strong><small>${esc(doc.prerequisite)}</small></span><b>${money(doc.fee)}</b></label>`).join("")}</fieldset><div class="request-total"><span>Request total</span><strong id="request-total">${money(0)}</strong></div><div class="form-grid"><label class="form-field"><span>Official Receipt (OR) number</span><input name="orNumber" required placeholder="Enter the payment receipt reference"></label><label class="form-field"><span>Payment screenshot</span><input name="proof" type="file" accept="image/png,image/jpeg,image/webp" required><small>PNG, JPG, or WebP · up to 2 MB</small></label></div><p class="form-error" id="request-error" role="alert"></p><button class="button-small" type="submit">Submit request for payment review &nbsp; →</button></form></section></div><div><section class="panel profile-panel"><div class="panel-heading"><h2>Student profile</h2><span class="badge">${esc(profile.enrollment_status.toUpperCase())}</span></div><div class="profile-row"><span class="profile-avatar">${esc(profile.name.split(" ").map((part) => part[0]).slice(0, 2).join(""))}</span><div><strong>${esc(profile.name)}</strong><p>${esc(profile.program)}</p></div></div><div class="detail-grid"><div><div class="detail-label">STUDENT ID</div><div class="detail-value">${esc(profile.student_id)}</div></div><div><div class="detail-label">UNITS</div><div class="detail-value">${profile.units}</div></div></div></section><section class="panel"><div class="panel-heading"><h2>Payment &amp; OR review</h2><span class="badge pending">WAIT STATE</span></div><p class="panel-copy">After submission, the cashier reviews your receipt and OR reference. The registrar then checks your request and clearance before approving QR generation.</p><div class="mini-flow"><span>Upload proof</span><b>→</b><span>Cashier review</span><b>→</b><span>Registrar decision</span></div></section></div></div><section id="my-requests" class="panel requests-panel"><div class="panel-heading"><div><h2>My document requests</h2><p class="panel-subtitle">Rejection notices include what to correct. Approved requests unlock one-time QR codes.</p></div><button class="subtle-button" id="refresh-requests">Refresh status</button></div><div id="request-list" class="request-list">${requestRows}</div></section>`, "request-form-panel");
-    document.querySelectorAll("input[name=documentIds]").forEach((input) => input.addEventListener("change", updateTotal));
+      `<div class="stats-grid">${stat("ENROLLMENT", profile.enrollment_status, profile.program, "✓")}${stat("REQUESTS IN PROGRESS", requests.filter((r) => !["CLAIMED", "REJECTED"].includes(r.status)).length, "Follow review status below", "◷")}${stat("ACTIVE CLEARANCE FLAGS", options.holds.length, options.holds.length ? "Undertaking required for requests" : "No outstanding prerequisites", "!")}</div><div class="content-grid request-content"><div><section class="panel" id="request-form-panel"><div class="panel-heading"><div><h2>Start a document request</h2><p class="panel-subtitle">Choose documents, attach payment proof and submit your OR number.</p></div><span class="badge">STAGE 2–3</span></div>${options.holds.length ? `<div class="notice alert-notice"><strong>Clearance check</strong><span>${options.holds.map(esc).join(" · ")}</span><details><summary>Review digital undertaking</summary><p>${esc(options.undertakingText)}</p></details><label class="undertaking-check"><input id="undertaking-signed" type="checkbox"><span>I have read and agree to the digital undertaking.</span></label></div>` : `<div class="notice">Your prerequisite check is clear. Select the documents you need.</div>`}<form id="request-form"><fieldset class="document-options"><legend>Available documents</legend>${options.documents.map(doc => `<div class="document-option"><input type="checkbox" name="documentIds" value="${esc(doc.id)}" data-fee="${doc.fee}"><span><strong>${esc(doc.name)}</strong><small>${esc(doc.prerequisite)}</small><em>${money(doc.fee)} per paper</em></span><label class="quantity-control"><span>Paper count (max 10)</span><input type="number" name="quantity-${esc(doc.id)}" min="1" max="10" value="1" disabled></label></div>`).join("")}</fieldset><div class="paper-count"><span>Total papers (maximum 10 per request)</span><strong id="selected-paper-count">0 / 10</strong></div><div class="request-total"><span>Request total</span><strong id="request-total">${money(0)}</strong></div><div class="form-grid"><label class="form-field"><span>Official Receipt (OR) number</span><input name="orNumber" required placeholder="Enter the payment receipt reference"></label><label class="form-field"><span>Payment screenshot</span><input name="proof" type="file" accept="image/png,image/jpeg,image/webp" required><small>PNG, JPG, or WebP · up to 2 MB</small></label></div><p class="form-error" id="request-error" role="alert"></p><button class="button-small" type="submit">Submit request for payment review &nbsp; →</button></form></section></div><div><section class="panel profile-panel"><div class="panel-heading"><h2>Student profile</h2><span class="badge">${esc(profile.enrollment_status.toUpperCase())}</span></div><div class="profile-row"><span class="profile-avatar">${esc(profile.name.split(" ").map((part) => part[0]).slice(0, 2).join(""))}</span><div><strong>${esc(profile.name)}</strong><p>${esc(profile.program)}</p></div></div><div class="detail-grid"><div><div class="detail-label">STUDENT ID</div><div class="detail-value">${esc(profile.student_id)}</div></div><div><div class="detail-label">UNITS</div><div class="detail-value">${profile.units}</div></div></div></section><section class="panel"><div class="panel-heading"><h2>Payment &amp; OR review</h2><span class="badge pending">WAIT STATE</span></div><p class="panel-copy">After submission, the cashier reviews your receipt and OR reference. The registrar then checks your request and clearance before approving QR generation.</p><div class="mini-flow"><span>Upload proof</span><b>→</b><span>Cashier review</span><b>→</b><span>Registrar decision</span></div></section></div></div><section id="my-requests" class="panel requests-panel"><div class="panel-heading"><div><h2>My document requests</h2><p class="panel-subtitle">Rejection notices include what to correct. Approved requests unlock one-time QR codes.</p></div><button class="subtle-button" id="refresh-requests">Refresh status</button></div><div id="request-list" class="request-list">${requestRows}</div></section>`, "request-form-panel");
+    document.querySelectorAll("input[name=documentIds]").forEach((input) => input.addEventListener("change", () => {
+      const quantity = input.closest(".document-option").querySelector('input[type="number"]');
+      quantity.disabled = !input.checked;
+      updateTotal();
+    }));
+    document.querySelectorAll(".quantity-control input").forEach((input) => input.addEventListener("input", updateTotal));
     document.getElementById("request-form").addEventListener("submit", (event) => submitRequest(event, options));
     document.getElementById("refresh-requests").addEventListener("click", () => studentDashboard(user).catch(showError));
     requests.forEach(request => attachRequestActions(request, options));
@@ -136,9 +141,16 @@
   }
 
   function updateTotal() {
-    const sum = [...document.querySelectorAll("input[name=documentIds]:checked")].reduce((total, input) => total + Number(input.dataset.fee), 0);
+    const selected = [...document.querySelectorAll("input[name=documentIds]:checked")].reduce((total, input) => {
+      const quantity = Number(input.closest(".document-option").querySelector('input[type="number"]').value) || 1;
+      total.papers += quantity;
+      total.amount += Number(input.dataset.fee) * quantity;
+      return total;
+    }, { papers: 0, amount: 0 });
     const target = document.getElementById("request-total");
-    if (target) target.textContent = money(sum);
+    if (target) target.textContent = money(selected.amount);
+    const paperCount = document.getElementById("selected-paper-count");
+    if (paperCount) paperCount.textContent = `${selected.papers} / 10`;
   }
 
   async function submitRequest(event, options, requestId = null) {
@@ -147,15 +159,25 @@
     const error = form.querySelector(".form-error") || document.getElementById("request-error");
     error.textContent = "";
     const selected = [...form.querySelectorAll("input[name=documentIds]:checked")].map((input) => input.value);
+    const quantities = Object.fromEntries(selected.map((documentId) => {
+      const input = form.querySelector(`[name="quantity-${CSS.escape(documentId)}"]`);
+      return [documentId, Number(input?.value)];
+    }));
     const file = form.querySelector('input[name="proof"]')?.files[0];
     if (!requestId && !selected.length) { error.textContent = "Select at least one document."; return; }
+    if (!requestId && Object.values(quantities).some((quantity) => !Number.isInteger(quantity) || quantity < 1 || quantity > 10)) {
+      error.textContent = "Choose between 1 and 10 papers for each selected document."; return;
+    }
+    if (!requestId && Object.values(quantities).reduce((sum, quantity) => sum + quantity, 0) > 10) {
+      error.textContent = "A request can include at most 10 papers total."; return;
+    }
     const undertakingField = form.querySelector('[name="undertakingSigned"]') || document.getElementById("undertaking-signed");
     const undertakingAccepted = undertakingField?.type === "checkbox" ? undertakingField.checked : undertakingField?.value === "true";
     if (options.undertakingRequired && !undertakingAccepted) { error.textContent = "Accept the digital undertaking to continue."; return; }
     try {
       const proof = await imagePayload(file);
       const body = { ...proof, orNumber: new FormData(form).get("orNumber"), undertakingSigned: Boolean(undertakingAccepted), undertakingVersion: options.undertakingVersion };
-      if (!requestId) body.documentIds = selected;
+      if (!requestId) { body.documentIds = selected; body.documentQuantities = quantities; }
       const path = requestId ? `/api/students/requests/${encodeURIComponent(requestId)}/resubmit` : "/api/students/requests";
       await api(path, { method: "POST", body: JSON.stringify(body) });
       toast(requestId ? "Updated receipt proof submitted." : "Request submitted for cashier review.");
@@ -185,14 +207,22 @@
     const target = document.getElementById(`qr-${requestId}`);
     try {
       const response = await api(`/api/students/requests/${encodeURIComponent(requestId)}/qr`, { method: "POST" });
-      if (!window.QRCode) throw new Error("QR display library is unavailable. Check your internet connection and reload.");
-      target.innerHTML = `<div class="qr-output" id="qr-output-${esc(requestId)}"></div><p class="qr-help">Encrypted request details · single-use · expires in 5 minutes</p><button class="button-small outline" data-download="${esc(requestId)}">Download QR as PNG</button>`;
+      target.innerHTML = `<div class="qr-output" id="qr-output-${esc(requestId)}"></div><p class="qr-help">Encrypted request details · single-use · expires in 5 minutes</p><p class="backup-code-display"><strong>Camera backup code</strong><code>${esc(response.backupCode)}</code><small>Give this code to the registrar if the QR cannot be scanned. It expires with the QR and works once.</small></p><button class="button-small outline" data-download="${esc(requestId)}">Download QR and backup code</button>`;
+      if (!window.QRCode) throw new Error("QR library unavailable. The backup code is ready to use at the registrar counter.");
       const qrNode = document.getElementById(`qr-output-${requestId}`);
       new QRCode(qrNode, { text: JSON.stringify(response.payload), width: 440, height: 440, correctLevel: QRCode.CorrectLevel.M, colorDark: "#003366", colorLight: "#ffffff" });
       document.querySelector(`[data-download="${CSS.escape(requestId)}"]`).addEventListener("click", () => {
-        const canvas = qrNode.querySelector("canvas");
-        if (!canvas) return;
-        const link = document.createElement("a"); link.download = "DOC-SECURE_Request_QR.png"; link.href = canvas.toDataURL("image/png"); link.click();
+        const qrCanvas = qrNode.querySelector("canvas");
+        if (!qrCanvas) return;
+        const exportCanvas = document.createElement("canvas");
+        exportCanvas.width = 480; exportCanvas.height = 540;
+        const context = exportCanvas.getContext("2d");
+        context.fillStyle = "#ffffff"; context.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+        context.drawImage(qrCanvas, 20, 20, 440, 440);
+        context.fillStyle = "#003366"; context.textAlign = "center";
+        context.font = "bold 13px sans-serif"; context.fillText("BACKUP CODE · EXPIRES IN 5 MINUTES", 240, 485);
+        context.font = "bold 22px monospace"; context.fillText(response.backupCode, 240, 520);
+        const link = document.createElement("a"); link.download = "DOC-SECURE_QR_and_Backup_Code.png"; link.href = exportCanvas.toDataURL("image/png"); link.click();
       });
     } catch (error) { toast(error.message); }
   }
@@ -224,7 +254,7 @@
     const [queue, audits] = await Promise.all([api("/api/registrar/requests"), api("/api/registrar/audit")]);
     const queueHtml = queue.map((request) => `<article class="review-card"><div class="request-card-head"><div><span class="request-id">${esc(request.studentName)} · ${esc(request.studentId)}</span><h3>${esc(request.documents.join(", "))}</h3></div><span class="badge">CASHIER VERIFIED</span></div><div class="request-facts"><span>Fee ${money(request.amount)}</span><span>Verified OR ${esc(request.orNumber)}</span><span>${request.undertakingSigned ? "Undertaking signed" : "No undertaking"}</span></div><img class="proof-preview" src="${esc(request.proofDataUrl)}" alt="Verified payment proof"><div class="decision-actions"><button class="button-small" data-approve="${esc(request.id)}">Approve &amp; enable QR</button><button class="button-small danger-button" data-reject="${esc(request.id)}">Reject with reason</button></div></article>`).join("") || `<div class="empty-state"><span>✓</span><strong>No pending registrar decisions</strong><p>Cashier-verified document requests will appear here.</p></div>`;
     const auditRows = audits.map(entry => `<tr><td>${esc(new Date(entry.createdAt).toLocaleString("en-PH"))}</td><td>${esc(entry.actorRole)} · ${esc(entry.actorId)}</td><td>${esc(entry.action.replaceAll("_", " "))}</td><td>${esc(entry.targetId.slice(0, 8))}</td></tr>`).join("") || `<tr><td colspan="4">No activity has been recorded yet.</td></tr>`;
-    shell(user, `<div class="stats-grid">${stat("PENDING REQUEST REVIEWS", queue.length, "Payment verified by cashier", "◷")}${stat("REVIEW QUEUE", "04 / 07", "Audit the request and OR binding", "▤")}${stat("AUDIT EVENTS", audits.length, "Append-only system history", "✓")}</div><div class="content-grid"><section class="panel wide-panel" id="registrar-queue"><div class="panel-heading"><div><h2>Request review &amp; decision</h2><p class="panel-subtitle">Check the selected documents, receipt, OR and undertaking before deciding.</p></div><button class="subtle-button" id="reload-registrar">Refresh queue</button></div><div class="review-list">${queueHtml}</div></section><section class="panel scanner-panel" id="counter-scanner"><div class="panel-heading"><div><h2>Counter QR scanner</h2><p class="panel-subtitle">AES-256-GCM authenticity · expiry · replay defense</p></div></div><div class="camera-frame" id="camera-frame"><div id="qr-reader"></div><div class="camera-placeholder"><span>▦</span><strong>Scan approved request QR</strong>Only current, single-use codes are accepted.</div></div><div class="camera-actions"><button class="button-small" id="start-scan">Start camera</button><button class="button-small outline" id="stop-scan" disabled>Stop</button></div><div id="scan-result" class="verification"></div></section></div><section class="panel" id="audit-trail"><div class="panel-heading"><div><h2>Immutable audit trail</h2><p class="panel-subtitle">Submission, review, QR verification and fulfillment actions are appended here.</p></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Request</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`, "registrar-queue");
+    shell(user, `<div class="stats-grid">${stat("PENDING REQUEST REVIEWS", queue.length, "Payment verified by cashier", "◷")}${stat("REVIEW QUEUE", "04 / 07", "Audit the request and OR binding", "▤")}${stat("AUDIT EVENTS", audits.length, "Append-only system history", "✓")}</div><div class="content-grid"><section class="panel wide-panel" id="registrar-queue"><div class="panel-heading"><div><h2>Request review &amp; decision</h2><p class="panel-subtitle">Check the selected documents, receipt, OR and undertaking before deciding.</p></div><button class="subtle-button" id="reload-registrar">Refresh queue</button></div><div class="review-list">${queueHtml}</div></section><section class="panel scanner-panel" id="counter-scanner"><div class="panel-heading"><div><h2>Counter QR scanner</h2><p class="panel-subtitle">AES-256-GCM authenticity · expiry · replay defense</p></div></div><div class="camera-frame" id="camera-frame"><div id="qr-reader"></div><div class="camera-placeholder"><span>▦</span><strong>Scan approved request QR</strong>Only current, single-use codes are accepted.</div></div><div class="camera-actions"><button class="button-small" id="start-scan">Start camera</button><button class="button-small outline" id="stop-scan" disabled>Stop</button></div><form id="backup-code-form" class="backup-code-form"><label>Camera backup code<input name="code" required autocomplete="off" maxlength="19" placeholder="ABCD-EF12-3456-7890"></label><button class="button-small outline" type="submit">Verify backup code</button></form><div id="scan-result" class="verification"></div></section></div><section class="panel" id="audit-trail"><div class="panel-heading"><div><h2>Immutable audit trail</h2><p class="panel-subtitle">Submission, review, QR verification and fulfillment actions are appended here.</p></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Request</th></tr></thead><tbody>${auditRows}</tbody></table></div></section>`, "registrar-queue");
     document.getElementById("reload-registrar").addEventListener("click", () => registrarDashboard(user).catch(showError));
     document.querySelectorAll("[data-approve]").forEach((button) => button.addEventListener("click", () => decideRequest(button.dataset.approve, "approve")));
     document.querySelectorAll("[data-reject]").forEach((button) => button.addEventListener("click", () => {
@@ -233,6 +263,7 @@
     }));
     document.getElementById("start-scan").addEventListener("click", startScanner);
     document.getElementById("stop-scan").addEventListener("click", stopScanner);
+    document.getElementById("backup-code-form").addEventListener("submit", verifyBackupCode);
   }
 
   async function decideRequest(requestId, decision, reason = "") {
@@ -266,10 +297,32 @@
     target.classList.add("visible"); target.innerHTML = `<div class="notice">Checking GCM authentication, expiry, request binding and single-use nonce…</div>`;
     try {
       const result = await api("/api/registrar/verify-qr", { method: "POST", body: JSON.stringify({ envelope: JSON.parse(raw) }) });
-      const request = result.request;
-      target.innerHTML = `<div class="verified-card"><span class="badge">QR VERIFIED · AUTHENTICATED</span><h3>${esc(request.studentName)}</h3><p>${esc(request.studentId)} · ${esc(request.documents.join(", "))}</p><div class="request-facts"><span>Verified OR ${esc(request.orNumber)}</span><span>${request.undertakingSigned ? "Undertaking confirmed" : "No undertaking"}</span></div><p>${esc(result.message)}</p><button class="button-small" id="claim-request">Confirm handover &amp; mark claimed</button></div>`;
-      document.getElementById("claim-request").addEventListener("click", () => claimRequest(request.id));
+      showVerifiedRequest(result);
     } catch (error) { target.innerHTML = `<div class="notice alert-notice"><strong>Verification failed</strong><span>${esc(error.message)}</span></div>`; }
+  }
+
+  async function verifyBackupCode(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const target = document.getElementById("scan-result");
+    target.classList.add("visible"); target.innerHTML = `<div class="notice">Checking backup code, expiry and single-use status…</div>`;
+    try {
+      const result = await api("/api/registrar/verify-backup-code", {
+        method: "POST",
+        body: JSON.stringify({ code: new FormData(form).get("code") })
+      });
+      showVerifiedRequest(result);
+    } catch (error) {
+      target.innerHTML = `<div class="notice alert-notice"><strong>Verification failed</strong><span>${esc(error.message)}</span></div>`;
+    }
+  }
+
+  function showVerifiedRequest(result) {
+    const request = result.request;
+    const target = document.getElementById("scan-result");
+    target.classList.add("visible");
+    target.innerHTML = `<div class="verified-card"><span class="badge">REQUEST VERIFIED · AUTHENTICATED</span><h3>${esc(request.studentName)}</h3><p>${esc(request.studentId)} · ${esc(request.documents.join(", "))}</p><div class="request-facts"><span>Verified OR ${esc(request.orNumber)}</span><span>${request.undertakingSigned ? "Undertaking confirmed" : "No undertaking"}</span></div><p>${esc(result.message)}</p><button class="button-small" id="claim-request">Confirm handover &amp; mark claimed</button></div>`;
+    document.getElementById("claim-request").addEventListener("click", () => claimRequest(request.id));
   }
 
   async function claimRequest(requestId) {
